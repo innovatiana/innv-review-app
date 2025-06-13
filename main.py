@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import json
 from modules.qa_checks import run_all_quality_checks
 
 st.set_page_config(page_title="📊 AI Dataset QA Review", layout="wide")
@@ -19,7 +20,18 @@ if uploaded_file is not None:
         elif file_type == "jsonl":
             dataset = pd.read_json(uploaded_file, lines=True)
         elif file_type == "json":
-            dataset = pd.read_json(uploaded_file)
+            try:
+                raw = json.load(uploaded_file)
+                if isinstance(raw, list):
+                    dataset = pd.DataFrame(raw)
+                elif isinstance(raw, dict):
+                    dataset = pd.json_normalize(raw)
+                else:
+                    st.error("❌ Unsupported JSON structure.")
+                    st.stop()
+            except Exception as e:
+                st.error(f"❌ Failed to parse JSON: {e}")
+                st.stop()
         elif file_type == "xml":
             dataset = pd.read_xml(uploaded_file)
         else:
