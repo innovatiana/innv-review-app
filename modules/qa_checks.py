@@ -3,7 +3,7 @@ import pandas as pd
 import json
 import streamlit as st
 
-openai.api_key = st.secrets["openai"]["api_key"]
+openai.api_key = "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"
 
 def ask_openai(prompt, sample_rows):
     try:
