@@ -13,4 +13,4 @@ python-dateutil
 Pillow
 opencv-python-headless
 pyyaml
-openai>=1.0.0
+openai==1.30.1
