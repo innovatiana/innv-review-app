@@ -33,7 +33,7 @@ def score_with_cleanlab(df):
     clf.fit(X.values, y_enc)
     issues = clf.get_label_issues()
     error_score = np.zeros(len(df))
-    error_score[issues] = 1  # binary error flag for simplicity
+    error_score[np.array(issues, dtype=int)] = 1 # binary error flag for simplicity
 
     df_out = df.copy()
     df_out['error_score'] = error_score
