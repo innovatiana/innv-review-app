@@ -4,7 +4,7 @@ from openai import OpenAI
 import streamlit as st
 
 # Initialize OpenAI client securely
-client = OpenAI(api_key="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")
+client = OpenAI(api_key="..")
 
 def run_all_quality_checks(dataset: pd.DataFrame, metadata: dict = None):
     results = {}
