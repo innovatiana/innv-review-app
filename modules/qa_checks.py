@@ -78,7 +78,12 @@ def run_all_quality_checks(df, metadata):
     report = {}
     report["num_rows"] = len(df)
     report["missing_values"] = df.isnull().sum().to_dict()
-    report["duplicate_rows"] = df.duplicated().sum()
+    df_serialized = df.copy()
+    for col in df_serialized.columns:
+        if df_serialized[col].apply(lambda x: isinstance(x, (list, dict))).any():
+            df_serialized[col] = df_serialized[col].astype(str)
+
+    report["duplicate_rows"] = df_serialized.duplicated().sum()
 
     if "text" in df.columns:
         token_counts = Counter(" ".join(df["text"].astype(str)).split())
