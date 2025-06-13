@@ -64,16 +64,25 @@ if uploaded_file:
 
             st.subheader("🧠 Cleanlab - Détection d'anomalies")
             if 'label' in df.columns:
-                X = df.drop(columns=['label'])
-                X = pd.get_dummies(X)
-                le = LabelEncoder()
-                y = le.fit_transform(df['label'])
-                clf = CleanLearning(RandomForestClassifier(), cv_n_folds=2)
-                clf.fit(X.values, y)
-                issues = clf.get_label_issues()
-                df['error_score'] = 0
-                df.loc[issues, 'error_score'] = 1
-                st.dataframe(df[df['error_score'] == 1])
+                try:
+                    X = df.drop(columns=['label'])
+                    X = pd.get_dummies(X)
+                    if X.isnull().values.any():
+                        X = X.fillna(0)
+
+                    le = LabelEncoder()
+                    y = le.fit_transform(df['label'])
+
+                    clean_model = CleanLearning(clf=RandomForestClassifier(), cv_n_folds=2)
+                    clean_model.fit(X.values, y)
+                    issues = clean_model.get_label_issues()
+                    df['error_score'] = 0
+                    df.loc[issues, 'error_score'] = 1
+
+                    st.success(f"✅ {len(issues)} anomalies détectées avec Cleanlab")
+                    st.dataframe(df[df['error_score'] == 1])
+                except Exception as e:
+                    st.error(f"Erreur Cleanlab : {e}")
 
         elif dataset_type == "JSON (NER)":
             data = json.load(uploaded_file)
@@ -130,7 +139,6 @@ if uploaded_file:
 
         elif dataset_type == "Multimodal (COCO/XML)":
             st.info("Analyse COCO / multimédia basique en cours...")
-            # Stub à compléter : structure COCO JSON expected
             content = json.load(uploaded_file)
             if 'images' in content and 'annotations' in content:
                 paths = [img.get('file_name') for img in content['images']]
