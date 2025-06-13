@@ -47,46 +47,43 @@ if uploaded_file is not None:
     st.write(list(dataset.columns))
 
     st.markdown("---")
-    st.subheader("🧪 Available Quality Checks")
+    st.subheader("🧪 Select Quality Checks")
 
-    checks_available = []
+    all_checks = {
+        "🧠 Cleanlab anomaly detection (classification)": "Detects potential mislabels using statistical learning.",
+        "📊 Class imbalance / label distribution": "Shows how labels are distributed, and highlights imbalances.",
+        "🧼 Missing values": "Identifies missing or null values in key columns.",
+        "🧾 Duplicates": "Detects duplicate or near-duplicate rows.",
+        "🗣️ Token frequency & text length": "Identifies very short/long texts and overrepresented tokens.",
+        "🌍 Language detection": "Checks whether the detected language matches the expected one.",
+        "🧵 NER span overlap / conflict": "Detects overlapping entity spans and conflicting labels.",
+        "🤖 Prompt/Response validation (LLM)": "Verifies that both fields are filled, with valid lengths and similarity.",
+        "🖼️ Bounding box consistency": "Checks if bounding boxes are valid and within image dimensions.",
+        "🕒 Timestamp validation": "Verifies that timestamps are correctly ordered and formatted."
+    }
 
-    if {"text", "label"}.issubset(dataset.columns):
-        checks_available += [
-            ("🧠 Cleanlab anomaly detection (classification)", "Detects potential mislabels using statistical learning."),
-            ("📊 Class imbalance / label distribution", "Shows how labels are distributed, and highlights imbalances."),
-            ("🗣️ Token frequency & text length", "Identifies very short/long texts and overrepresented tokens."),
-            ("🌍 Language detection", "Checks whether the detected language matches the expected one."),
-        ]
-    if {"start", "end"}.issubset(dataset.columns):
-        checks_available += [("🧵 NER span overlap / conflict", "Detects overlapping entity spans and conflicting labels.")]
-    if {"prompt", "response"}.issubset(dataset.columns):
-        checks_available += [("🤖 Prompt/Response validation (LLM)", "Verifies that both fields are filled, with valid lengths and similarity.")]
-    if {"bbox_x", "bbox_y", "bbox_width", "bbox_height"}.issubset(dataset.columns):
-        checks_available += [("🖼️ Bounding box consistency", "Checks if bounding boxes are valid and within image dimensions.")]
-    if {"start_time", "end_time"}.issubset(dataset.columns):
-        checks_available += [("🕒 Timestamp validation", "Verifies that timestamps are correctly ordered and formatted.")]
-    if len(dataset.columns) > 0:
-        checks_available += [
-            ("🧼 Missing values", "Identifies missing or null values in key columns."),
-            ("🧾 Duplicates", "Detects duplicate or near-duplicate rows.")
-        ]
-
-    for check, explanation in checks_available:
-        st.markdown(f"- {check}\n    > 📌 {explanation}")
+    selected_checks = []
+    for check, desc in all_checks.items():
+        if st.checkbox(f"{check}", value=True):
+            st.markdown(f"> 📌 {desc}")
+            selected_checks.append(check)
 
     st.markdown("---")
-    st.subheader("📈 Run Automated Analysis")
+    st.subheader("📈 Run Selected Analysis")
 
     if st.button("▶️ Run Quality Checks"):
         with st.spinner("Analyzing dataset..."):
-            metadata = {}  # Reserved for future use (e.g., media files or label schema)
+            metadata = {"selected_checks": selected_checks}
             report = run_all_quality_checks(dataset, metadata)
 
         st.success("✅ Analysis complete!")
 
         st.subheader("📌 Summary Report")
         for key, value in report.items():
-            st.markdown(f"**{key}**: {value}")
+            st.markdown(f"### ✅ {key}")
+            if isinstance(value, pd.DataFrame):
+                st.dataframe(value)
+            else:
+                st.markdown(f"{value}")
 else:
     st.info("⬆️ Please upload a dataset file to begin.")
