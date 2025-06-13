@@ -1,157 +1,129 @@
 # modules/qa_checks.py
-from cleanlab.classification import CleanLearning
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import LabelEncoder
-import numpy as np
 import pandas as pd
+import numpy as np
 from collections import Counter
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 import langdetect
-from datetime import datetime
-import re
-from sentence_transformers import SentenceTransformer, util
 
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# Cleanlab (optional check)
+try:
+    from cleanlab.classification import CleanLearning
+    from cleanlab.dataset import cleanlab_scores
+    has_cleanlab = True
+except ImportError:
+    has_cleanlab = False
 
-def is_valid_timestamp(ts):
+def check_class_distribution(df):
+    if 'label' in df.columns:
+        return df['label'].value_counts().to_frame(name='count')
+    return "⚠️ No 'label' column found."
+
+def check_missing_values(df):
+    missing = df.isnull().sum()
+    return missing[missing > 0].to_frame(name='missing_count') if not missing.empty else "✅ No missing values."
+
+def check_duplicates(df):
+    duplicates = df[df.duplicated(keep=False)]
+    return duplicates if not duplicates.empty else "✅ No duplicates."
+
+def check_token_length(df):
+    if 'text' in df.columns:
+        df['text_length'] = df['text'].astype(str).apply(len)
+        return df[['text', 'text_length']].sort_values(by='text_length', ascending=False).head(10)
+    return "⚠️ No 'text' column to check."
+
+def check_language(df):
+    if 'text' in df.columns:
+        try:
+            df['lang'] = df['text'].astype(str).apply(lambda x: langdetect.detect(x) if len(x) > 5 else 'unknown')
+            return df[['text', 'lang']].head(10)
+        except:
+            return "⚠️ Language detection failed."
+    return "⚠️ No 'text' column."
+
+def check_prompt_response(df):
+    if 'prompt' in df.columns and 'response' in df.columns:
+        empty_prompt = df['prompt'].isnull().sum()
+        empty_resp = df['response'].isnull().sum()
+        long_resp = df['response'].astype(str).apply(len).gt(1000).sum()
+        return {
+            "Empty prompts": empty_prompt,
+            "Empty responses": empty_resp,
+            "Long responses >1000 chars": long_resp
+        }
+    return "⚠️ Columns 'prompt' and 'response' not found."
+
+def check_span_conflicts(df):
+    if {'start', 'end', 'label'}.issubset(df.columns):
+        overlaps = []
+        for i, row in df.iterrows():
+            for j, other in df.iterrows():
+                if i != j and row['start'] < other['end'] and row['end'] > other['start']:
+                    overlaps.append((i, j))
+        return pd.DataFrame(overlaps, columns=['Entity_1', 'Entity_2']) if overlaps else "✅ No span conflicts."
+    return "⚠️ Columns 'start', 'end', 'label' required."
+
+def check_bbox_consistency(df):
+    if {'x', 'y', 'width', 'height', 'image_width', 'image_height'}.issubset(df.columns):
+        df['bbox_valid'] = (
+            (df['x'] >= 0) & (df['y'] >= 0) &
+            (df['x'] + df['width'] <= df['image_width']) &
+            (df['y'] + df['height'] <= df['image_height'])
+        )
+        return df[df['bbox_valid'] == False] if df['bbox_valid'].eq(False).any() else "✅ All bounding boxes are within image dimensions."
+    return "⚠️ Required columns missing for bbox validation."
+
+def check_timestamp_validity(df):
+    if {'start_time', 'end_time'}.issubset(df.columns):
+        invalid = df[df['start_time'] > df['end_time']]
+        return invalid if not invalid.empty else "✅ All timestamps are valid."
+    return "⚠️ Columns 'start_time' and 'end_time' required."
+
+def check_cleanlab(df):
+    if not has_cleanlab:
+        return "⚠️ Cleanlab not installed."
+    if 'text' not in df.columns or 'label' not in df.columns:
+        return "⚠️ 'text' and 'label' required for Cleanlab."
     try:
-        if isinstance(ts, (int, float)):
-            return True
-        ts_str = str(ts)
-        iso_regex = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
-        time_regex = r"^\d{1,2}:\d{2}(:\d{2})?$"
-        float_regex = r"^\d+(\.\d+)?$"
-        return re.match(iso_regex, ts_str) or re.match(time_regex, ts_str) or re.match(float_regex, ts_str)
-    except:
-        return False
+        X = df['text'].astype(str)
+        y = df['label']
+        vec = lambda x: np.array([hash(w) % 1000 for w in x.lower().split()])[:10]
+        X_vect = np.vstack(X.map(vec))
+        X_train, X_test, y_train, y_test = train_test_split(X_vect, y, test_size=0.3)
+        model = LogisticRegression(max_iter=1000)
+        model.fit(X_train, y_train)
+        pred_probs = model.predict_proba(X_vect)
+        cl = CleanLearning(model)
+        ranked = cleanlab_scores(cl.clf(), X_vect, y)
+        outliers = pd.Series(ranked).sort_values(ascending=False).head(10)
+        return outliers.to_frame(name='cleanlab_score')
+    except Exception as e:
+        return f"❌ Cleanlab error: {e}"
 
-def detect_ner_span_conflicts(df):
-    if not {"start", "end", "label"}.issubset(df.columns):
-        return None
 
-    overlap_count = 0
-    conflict_count = 0
-
-    for text_id, group in df.groupby("text_id") if "text_id" in df.columns else [(None, df)]:
-        spans = group[["start", "end", "label"]].sort_values("start").values
-        for i in range(len(spans) - 1):
-            s1, e1, l1 = spans[i]
-            s2, e2, l2 = spans[i + 1]
-            if s2 < e1:
-                overlap_count += 1
-                if l1 != l2:
-                    conflict_count += 1
-
-    return {"span_overlaps": overlap_count, "conflicting_labels_on_span": conflict_count}
-
-def llm_prompt_response_validation(df):
-    issues = {
-        "missing_prompt": 0,
-        "missing_response": 0,
-        "long_response": 0,
-        "short_response": 0,
-        "low_similarity": 0
-    }
-    try:
-        if {"prompt", "response"}.issubset(df.columns):
-            for _, row in df.iterrows():
-                prompt = str(row["prompt"])
-                response = str(row["response"])
-                if not prompt.strip():
-                    issues["missing_prompt"] += 1
-                if not response.strip():
-                    issues["missing_response"] += 1
-                if len(response) > 2000:
-                    issues["long_response"] += 1
-                if len(response) < 5:
-                    issues["short_response"] += 1
-
-                emb1 = model.encode(prompt, convert_to_tensor=True)
-                emb2 = model.encode(response, convert_to_tensor=True)
-                sim = util.pytorch_cos_sim(emb1, emb2).item()
-                if sim < 0.3:
-                    issues["low_similarity"] += 1
-        return issues
-    except:
-        return issues
+# Mapping all checks to their function
+check_functions = {
+    "📊 Class imbalance / label distribution": check_class_distribution,
+    "🧼 Missing values": check_missing_values,
+    "🧾 Duplicates": check_duplicates,
+    "🗣️ Token frequency & text length": check_token_length,
+    "🌍 Language detection": check_language,
+    "🤖 Prompt/Response validation (LLM)": check_prompt_response,
+    "🧵 NER span overlap / conflict": check_span_conflicts,
+    "🖼️ Bounding box consistency": check_bbox_consistency,
+    "🕒 Timestamp validation": check_timestamp_validity,
+    "🧠 Cleanlab anomaly detection (classification)": check_cleanlab
+}
 
 def run_all_quality_checks(df, metadata):
-    report = {}
-    report["num_rows"] = len(df)
-    report["missing_values"] = df.isnull().sum().to_dict()
-    df_serialized = df.copy()
-    for col in df_serialized.columns:
-        if df_serialized[col].apply(lambda x: isinstance(x, (list, dict))).any():
-            df_serialized[col] = df_serialized[col].astype(str)
-
-    report["duplicate_rows"] = df_serialized.duplicated().sum()
-
-    if "text" in df.columns:
-        token_counts = Counter(" ".join(df["text"].astype(str)).split())
-        report["token_frequency"] = dict(token_counts.most_common(20))
-        report["avg_text_length"] = df["text"].astype(str).apply(len).mean()
-
-        try:
-            detected_languages = df["text"].astype(str).apply(langdetect.detect)
-            report["language_distribution"] = dict(Counter(detected_languages))
-        except:
-            report["language_distribution"] = "Error detecting language"
-
-    if "label" in df.columns:
-        try:
-            df = df.dropna(subset=["text", "label"])
-            le = LabelEncoder()
-            y = le.fit_transform(df["label"])
-            from sklearn.feature_extraction.text import TfidfVectorizer
-            vectorizer = TfidfVectorizer(max_features=1000)
-            X_vec = vectorizer.fit_transform(df["text"].astype(str))
-            model_lr = LogisticRegression(max_iter=1000)
-            clf = CleanLearning(clf=model_lr)
-            clf.fit(X_vec, y)
-            label_issues = clf.get_label_issues()
-            report["label_issues"] = int(label_issues.sum())
-        except Exception as e:
-            report["label_issues"] = f"Error: {e}"
-
-    if {"bbox_x", "bbox_y", "bbox_width", "bbox_height"}.issubset(df.columns):
-        invalid_bboxes = df[
-            (df["bbox_width"] <= 0) |
-            (df["bbox_height"] <= 0) |
-            (df["bbox_x"] < 0) |
-            (df["bbox_y"] < 0)
-        ]
-        report["invalid_bounding_boxes"] = len(invalid_bboxes)
-
-        if {"image_width", "image_height"}.issubset(df.columns):
-            outside_bounds = df[
-                (df["bbox_x"] + df["bbox_width"] > df["image_width"]) |
-                (df["bbox_y"] + df["bbox_height"] > df["image_height"])
-            ]
-            report["bounding_boxes_outside_image"] = len(outside_bounds)
-
-    if {"start_time", "end_time"}.issubset(df.columns):
-        invalid_time_order = df[df["start_time"] >= df["end_time"]]
-        report["invalid_timestamp_order"] = len(invalid_time_order)
-
-        invalid_formats = df[~df["start_time"].apply(is_valid_timestamp) | ~df["end_time"].apply(is_valid_timestamp)]
-        report["invalid_timestamp_format"] = len(invalid_formats)
-
-        if "media_id" in df.columns:
-            overlap_count = 0
-            for media_id, group in df.groupby("media_id"):
-                sorted_group = group.sort_values("start_time")
-                ends = sorted_group["end_time"].tolist()
-                starts = sorted_group["start_time"].tolist()[1:]
-                prev_ends = ends[:-1]
-                for s, e in zip(starts, prev_ends):
-                    if s < e:
-                        overlap_count += 1
-            report["overlapping_segments"] = overlap_count
-
-    ner_conflicts = detect_ner_span_conflicts(df)
-    if ner_conflicts:
-        report.update(ner_conflicts)
-
-    llm_checks = llm_prompt_response_validation(df)
-    report.update(llm_checks)
-
-    return report
+    results = {}
+    for check in metadata.get("selected_checks", []):
+        func = check_functions.get(check)
+        if func:
+            try:
+                results[check] = func(df)
+            except Exception as e:
+                results[check] = f"❌ Error running {check}: {e}"
+    return results
