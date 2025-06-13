@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
 st.set_page_config(page_title="QA Review Manager", layout="wide")
-st.title("🔎 QA Review Manager with Cleanlab Scoring")
+st.title("🔎 Innovatiana's QA Review Manager with Cleanlab Scoring")
 
 # Simulated task store
 if 'tasks' not in st.session_state:
@@ -29,7 +29,7 @@ def score_with_cleanlab(df):
     le = LabelEncoder()
     y_enc = le.fit_transform(y)
 
-    clf = CleanLearning(RandomForestClassifier(random_state=42))
+    clf = CleanLearning(RandomForestClassifier(random_state=42), cv_n_folds=2)
     clf.fit(X.values, y_enc)
     issues = clf.get_label_issues()
     error_score = np.zeros(len(df))
