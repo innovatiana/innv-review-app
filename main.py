@@ -64,7 +64,7 @@ if uploaded_file is not None:
 
     selected_checks = []
     for check, desc in all_checks.items():
-        if st.checkbox(f"{check}", value=True):
+        if st.checkbox(f"{check}", value=False):
             st.markdown(f"> 📌 {desc}")
             selected_checks.append(check)
 
@@ -82,7 +82,13 @@ if uploaded_file is not None:
         for key, value in report.items():
             st.markdown(f"### ✅ {key}")
             if isinstance(value, pd.DataFrame):
-                st.dataframe(value)
+                if value.empty:
+                    st.info("No issues detected for this check.")
+                else:
+                    st.dataframe(value)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    st.markdown(f"- {item}")
             else:
                 st.markdown(f"{value}")
 else:
