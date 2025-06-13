@@ -7,7 +7,7 @@ st.set_page_config(page_title="📊 AI Dataset QA Review", layout="wide")
 st.title("🧪 Dataset Quality Review Tool")
 
 st.markdown("""
-Upload an annotated dataset in **CSV, JSON, JSONL or XML** format. This tool will analyze the file and perform quality checks automatically, based on the structure of your data.
+Upload an annotated dataset in **CSV, JSON, JSONL or XML** format. This tool will analyze the file and perform quality checks based on your selection.
 """)
 
 uploaded_file = st.file_uploader("📁 Upload your dataset file", type=["csv", "json", "jsonl", "xml"])
@@ -47,32 +47,21 @@ if uploaded_file is not None:
     st.write(list(dataset.columns))
 
     st.markdown("---")
-    st.subheader("🧪 Select Quality Checks")
+    st.subheader("🧪 Select Quality Checks to Run")
 
-    all_checks = {
-        "🧠 Cleanlab anomaly detection (classification)": "Detects potential mislabels using statistical learning.",
-        "📊 Class imbalance / label distribution": "Shows how labels are distributed, and highlights imbalances.",
-        "🧼 Missing values": "Identifies missing or null values in key columns.",
-        "🧾 Duplicates": "Detects duplicate or near-duplicate rows.",
-        "🗣️ Token frequency & text length": "Identifies very short/long texts and overrepresented tokens.",
-        "🌍 Language detection": "Checks whether the detected language matches the expected one.",
-        "🧵 NER span overlap / conflict": "Detects overlapping entity spans and conflicting labels.",
-        "🤖 Prompt/Response validation (LLM)": "Verifies that both fields are filled, with valid lengths and similarity.",
-        "🖼️ Bounding box consistency": "Checks if bounding boxes are valid and within image dimensions.",
-        "🕒 Timestamp validation": "Verifies that timestamps are correctly ordered and formatted."
-    }
+    # Dynamically build check options from the available check_functions
+    from modules.qa_checks import check_functions
 
     selected_checks = []
-    for check, desc in all_checks.items():
-        if st.checkbox(f"{check}", value=False):
-            st.markdown(f"> 📌 {desc}")
-            selected_checks.append(check)
+    for label, func in check_functions.items():
+        if st.checkbox(label, value=False):
+            selected_checks.append(label)
 
     st.markdown("---")
-    st.subheader("📈 Run Selected Analysis")
+    st.subheader("📈 Run Selected Checks")
 
-    if st.button("▶️ Run Quality Checks"):
-        with st.spinner("Analyzing dataset..."):
+    if st.button("▶️ Run QA Analysis"):
+        with st.spinner("Running checks..."):
             metadata = {"selected_checks": selected_checks}
             report = run_all_quality_checks(dataset, metadata)
 
@@ -80,16 +69,19 @@ if uploaded_file is not None:
 
         st.subheader("📌 Summary Report")
         for key, value in report.items():
-            st.markdown(f"### ✅ {key}")
+            st.markdown(f"### 🔎 {key}")
             if isinstance(value, pd.DataFrame):
                 if value.empty:
-                    st.info("No issues detected for this check.")
+                    st.info("✅ No issues detected.")
                 else:
                     st.dataframe(value)
+            elif isinstance(value, dict):
+                for subkey, subval in value.items():
+                    st.markdown(f"- **{subkey}**: {subval}")
             elif isinstance(value, (list, tuple)):
                 for item in value:
                     st.markdown(f"- {item}")
             else:
                 st.markdown(f"{value}")
 else:
-    st.info("⬆️ Please upload a dataset file to begin.")
+    st.info("⬆️ Please upload a dataset to begin.")
